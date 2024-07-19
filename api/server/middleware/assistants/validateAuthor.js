@@ -34,8 +34,25 @@ const validateAuthor = async ({ req, openai, overrideEndpoint, overrideAssistant
   if (assistantDoc) {
     return;
   }
+
   const assistant = await openai.beta.assistants.retrieve(assistant_id);
-  if (req.user.id !== assistant?.metadata?.author) {
+
+  // Allow chatting but restrict deletion and updating
+  const isDeleteRequest = req.method === 'DELETE';
+  const isUpdateRequest = req.method === 'PUT' || req.method === 'PATCH';
+  if ((isDeleteRequest || isUpdateRequest) && req.user.id !== assistant?.metadata?.author) {
+    throw new Error(`Assistant ${assistant_id} is not authored by the user and cannot be ${isDeleteRequest ? 'deleted' : 'updated'}.`);
+  }
+
+  // Allow chatting if supported or user's email is in the description
+  const isChatRequest = req.path.includes('/chat');
+  const isSupportedId = assistantsConfig.supportedIds?.includes(assistant_id);
+  const userEmailInDescription = assistant?.description?.includes(req.user.email);
+  if (isChatRequest && (isSupportedId || req.user.id === assistant?.metadata?.author || userEmailInDescription)) {
+    return;
+  }
+
+  if (!isSupportedId && req.user.id !== assistant?.metadata?.author && !userEmailInDescription) {
     throw new Error(`Assistant ${assistant_id} is not authored by the user.`);
   }
 };
